@@ -1,22 +1,26 @@
 #include <SPI.h>
   
-#include <RFID.h>
+#include <MFRC522.h>
 
 #include <Servo.h>
 
 #include <SharpIR.h>
 
-#define OPEN_I_PIN 2
+#define IRQ_PIN 2
 #define LOCK_PIN 3
 #define LED_PIN A1
-Servo myservo;
+
 volatile bool bNewInt = false;
 volatile bool isLocked = false;
 extern uint8_t SmallFont[];
-  
-RFID     rfid(10,9);    //D10--接上SDA、D8--接RST  D13--接上SCK D11--接上MOSI D12--接上MISO RQ不接
+byte regVal = 0x7F;
+void activateRec(MFRC522 mfrc522);
+void clearInt(MFRC522 mfrc522);
 
-SharpIR sensor( SharpIR::GP2Y0A21YK0F, A0 );
+MFRC522 mfrc522(10, 9);                 //Create MFRC522 instance.
+Servo myservo;                          //Create servo instance.
+
+SharpIR sensor( SharpIR::GP2Y0A21YK0F, A0 ); //Analog distance reader.
 
 unsigned char serNum[5];
   
@@ -26,12 +30,30 @@ void setup()
   myservo.attach(8);//舵机针脚位8
   myservo.write(0); //舵机初始化0度
   SPI.begin();
-  rfid.init();
-  pinMode(OPEN_I_PIN, INPUT_PULLUP);
+  mfrc522.PCD_Init();
+  pinMode(IRQ_PIN, INPUT_PULLUP);
   pinMode(LOCK_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
-  attachInterrupt(digitalPinToInterrupt(OPEN_I_PIN), readCard, FALLING);
   attachInterrupt(digitalPinToInterrupt(LOCK_PIN),lock, FALLING);
+
+  /* setup the IRQ pin*/
+  pinMode(IRQ_PIN, INPUT_PULLUP);
+
+  /*
+   * Allow the ... irq to be propagated to the IRQ pin
+   * For test purposes propagate the IdleIrq and loAlert
+   */
+  regVal = 0xA0; //rx irq
+  mfrc522.PCD_WriteRegister(mfrc522.ComIEnReg, regVal);
+
+  bNewInt = false; //interrupt flag
+  /*Activate the interrupt*/
+  attachInterrupt(digitalPinToInterrupt(IRQ_PIN), readCard, FALLING);
+  
+  do { //clear a spourious interrupt at start
+    ;
+  } while (!bNewInt);
+  bNewInt = false;
   Serial.println(F("End setup"));
 }
   
@@ -53,92 +75,85 @@ void lock() {
 void loop()
   
 {
-  Serial.println(isLocked);
-  delay(500);
-  
   if (bNewInt) {
-    if (isLocked == 1) {
+    if (!mfrc522.PICC_IsNewCardPresent()) return;
+    if (isLocked) {
+       int count = 0;
+       while (count < 2) {
+          Serial.println("Here");
+          analogWrite(LED_PIN, 200);
+          delay(500);
+          analogWrite(LED_PIN, 0);
+          delay(500);
+          count++;
+        }
+        return;
+    }
     int count = 0;
-    while (count < 2) {
-      Serial.println("Here");
-      analogWrite(LED_PIN, 200);
-      delay(500);
-      analogWrite(LED_PIN, 0);
-      delay(500);
+    while (count < 10) {
+      int distance = sensor.getDistance();
+      Serial.println(distance);
+      if (distance < 30) break;
       count++;
+      delay(500);
+      if (count == 10) {
+        return;
+      }
     }
+    
+    mfrc522.PICC_ReadCardSerial(); //read the tag data
+    // Show some details of the PICC (that is: the tag/card)
+    Serial.print(F("Card UID:"));
+    dump_byte_array(mfrc522.uid.uidByte, mfrc522.uid.size);
+    Serial.println();
+    if (mfrc522.uid.uidByte[0] == 57 || mfrc522.uid.uidByte[0] == 126) {
+      if(mfrc522.uid.uidByte[0] == 57 && mfrc522.uid.uidByte[1] == 160 && mfrc522.uid.uidByte[2] == 62 && mfrc522.uid.uidByte[3] == 183) {
+        Serial.println("Welcome test 1");
+        myservo.write(180); 
+      }
+      if(mfrc522.uid.uidByte[0] == 126 && mfrc522.uid.uidByte[1] == 148 && mfrc522.uid.uidByte[2] == 07 && mfrc522.uid.uidByte[3] == 83) {
+        Serial.println("Welcome test 2");
+        myservo.write(180); 
+      }
+      delay(3000);
+      myservo.write(0); 
+      Serial.println("closed");
+    }
+    
+    clearInt(mfrc522);
+    mfrc522.PICC_HaltA();
     bNewInt = false;
-    return;
   }
-  int count = 0;
-  while(count < 10) {
-    int distance = sensor.getDistance();
-    Serial.println(distance);
-    if (distance < 30) break;
-    count++;
-    delay(500);
-    if (count == 10) {
-      bNewInt = false;
-      return;
-    }
-  }
-  long randNumber = random(0, 20);
-  unsigned char i,tmp;
-  unsigned char status;
-  unsigned char str[MAX_LEN];
-  unsigned char RC_size;
-  count = 0;
-  while (count < 100000) {
-    //找卡
-    rfid.isCard();
-    //读卡号
-    if (rfid.readCardSerial())
-    {
-      count = 10;
-      Serial.print("your card id is   : ");
-      Serial.print(rfid.serNum[0]);
-      Serial.print(" , ");
-      Serial.print(rfid.serNum[1],BIN);
-      Serial.print(" , ");
-      Serial.print(rfid.serNum[2],BIN);
-      Serial.print(" , ");
-      Serial.print(rfid.serNum[2],BIN);
-      Serial.print(" , ");
-      Serial.print(rfid.serNum[4],BIN);
-      Serial.println(" ");
-      //下面是改卡号区域
-      if(rfid.serNum[0]==57||rfid.serNum[0]==126||rfid.serNum[0]==136||rfid.serNum[0]==161||rfid.serNum[0]==68){//第一道筛选
-//        for(int i=0;i<100;i++)
-//        {
-          if(rfid.serNum[0]==57||rfid.serNum[0]==126||rfid.serNum[0]==155)//第二道筛选，支持一人一号
-          {
-            Serial.println("Welcome test 1");
-            myservo.write(180); 
-          }
-          if(rfid.serNum[0]==148||rfid.serNum[0]==68||rfid.serNum[0]==161)//rfid.serNum[0]==161 这个0是id位置，可以自行更改
-          {
-            Serial.println("Welcome test 2");
-            myservo.write(180); 
-          }
-          if(rfid.serNum[0]==136)
-          {
-            Serial.println("Welcome test 3");
-            myservo.write(180);
-          }
-//        }     
-        delay(3000);
-        myservo.write(0); 
-        Serial.println("closed");
-      }
-      break;
-    }  
-    if (!rfid.readCardSerial()){
-      }
-      count++;
-    }
-  bNewInt = false;
-  rfid.halt(); //休眠
+
+  // The receiving block needs regular retriggering (tell the tag it should transmit??)
+  // (mfrc522.PCD_WriteRegister(mfrc522.FIFODataReg,mfrc522.PICC_CMD_REQA);)
+  activateRec(mfrc522);
+  delay(100);
+}
+
+/**
+ * Helper routine to dump a byte array as hex values to Serial.
+ */
+void dump_byte_array(byte *buffer, byte bufferSize) {
+  for (byte i = 0; i < bufferSize; i++) {
+    Serial.print(buffer[i] < 0x10 ? " 0" : " ");
+    Serial.print(buffer[i]);
   }
 }
-  
+
+/*
+ * The function sending to the MFRC522 the needed commands to activate the reception
+ */
+void activateRec(MFRC522 mfrc522) {
+  mfrc522.PCD_WriteRegister(mfrc522.FIFODataReg, mfrc522.PICC_CMD_REQA);
+  mfrc522.PCD_WriteRegister(mfrc522.CommandReg, mfrc522.PCD_Transceive);
+  mfrc522.PCD_WriteRegister(mfrc522.BitFramingReg, 0x87);
+}
+
+/*
+ * The function to clear the pending interrupt bits after interrupt serving routine
+ */
+void clearInt(MFRC522 mfrc522) {
+  mfrc522.PCD_WriteRegister(mfrc522.ComIrqReg, 0x7F);
+}
  

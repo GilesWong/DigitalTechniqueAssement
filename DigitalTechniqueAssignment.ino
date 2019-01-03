@@ -1,3 +1,10 @@
+/*
+ * This code need following libraries to be complied:
+ * Servo
+ * MFRC522
+ * Sharp IR
+ */
+
 #include <SPI.h>
   
 #include <MFRC522.h>
@@ -26,14 +33,15 @@ unsigned char serNum[5];
   
 void setup()
 {
-  Serial.begin(9600);//串口用来读取需要添加的卡号，然后手动写到程序里
-  myservo.attach(8);//舵机针脚位8
-  myservo.write(0); //舵机初始化0度
+  Serial.begin(9600);
+  myservo.attach(8);//Attach to the servomotor connected to PIN 8.
+  myservo.write(0); //Initialize the servomotor to its original position.
   SPI.begin();
   mfrc522.PCD_Init();
   pinMode(IRQ_PIN, INPUT_PULLUP);
   pinMode(LOCK_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
+  //Use interrupt to disable or enable the system.
   attachInterrupt(digitalPinToInterrupt(LOCK_PIN),lock, FALLING);
 
   /* setup the IRQ pin*/
@@ -58,10 +66,12 @@ void setup()
 }
   
 void readCard() {
+  //When card present, set it to true to tell the system to read the card.
   bNewInt = true;
 }
 
 void lock() {
+  //Disable or enable the system when button is pressed.
   switch(isLocked) {
     case false:
       isLocked = true;
@@ -76,8 +86,10 @@ void loop()
   
 {
   if (bNewInt) {
+    //A bug appears when below one sentence is removed, so I restrict it to active only on new present presence.
     if (!mfrc522.PICC_IsNewCardPresent()) return;
     if (isLocked) {
+      //If locked, blink the LED twice.
        int count = 0;
        while (count < 2) {
           Serial.println("Here");
@@ -90,6 +102,7 @@ void loop()
         return;
     }
     int count = 0;
+    //Read the distance 10 times, once the data is less than 30cm, read the card ID.
     while (count < 10) {
       int distance = sensor.getDistance();
       Serial.println(distance);
@@ -106,6 +119,7 @@ void loop()
     Serial.print(F("Card UID:"));
     dump_byte_array(mfrc522.uid.uidByte, mfrc522.uid.size);
     Serial.println();
+    //Set the authorized ID here.
     if (mfrc522.uid.uidByte[0] == 57 || mfrc522.uid.uidByte[0] == 126) {
       if(mfrc522.uid.uidByte[0] == 57 && mfrc522.uid.uidByte[1] == 160 && mfrc522.uid.uidByte[2] == 62 && mfrc522.uid.uidByte[3] == 183) {
         Serial.println("Welcome test 1");
@@ -115,6 +129,7 @@ void loop()
         Serial.println("Welcome test 2");
         myservo.write(180); 
       }
+      //Reset the servo motor to original position.
       delay(3000);
       myservo.write(0); 
       Serial.println("closed");

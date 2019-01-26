@@ -92,11 +92,8 @@ void loop()
       //If locked, blink the LED twice.
        int count = 0;
        while (count < 2) {
-          Serial.println("Here");
-          analogWrite(LED_PIN, 200);
-          delay(500);
-          analogWrite(LED_PIN, 0);
-          delay(500);
+          Serial.println("Blocked");
+          blinkLed();
           count++;
         }
         return;
@@ -120,13 +117,17 @@ void loop()
     dump_byte_array(mfrc522.uid.uidByte, mfrc522.uid.size);
     Serial.println();
     //Set the authorized ID here.
-    if (mfrc522.uid.uidByte[0] == 57 || mfrc522.uid.uidByte[0] == 126) {
+    if (mfrc522.uid.uidByte[0] == 57 || mfrc522.uid.uidByte[0] == 126 || mfrc522.uid.uidByte[0] == 29) {
       if(mfrc522.uid.uidByte[0] == 57 && mfrc522.uid.uidByte[1] == 160 && mfrc522.uid.uidByte[2] == 62 && mfrc522.uid.uidByte[3] == 183) {
         Serial.println("Welcome test 1");
         myservo.write(180); 
       }
       if(mfrc522.uid.uidByte[0] == 126 && mfrc522.uid.uidByte[1] == 148 && mfrc522.uid.uidByte[2] == 07 && mfrc522.uid.uidByte[3] == 83) {
         Serial.println("Welcome test 2");
+        myservo.write(180); 
+      }
+       if(mfrc522.uid.uidByte[0] == 29 && mfrc522.uid.uidByte[1] == 182 && mfrc522.uid.uidByte[2] == 43 && mfrc522.uid.uidByte[3] == 216) {
+        Serial.println("Welcome test 3");
         myservo.write(180); 
       }
       //Reset the servo motor to original position.
@@ -170,5 +171,12 @@ void activateRec(MFRC522 mfrc522) {
  */
 void clearInt(MFRC522 mfrc522) {
   mfrc522.PCD_WriteRegister(mfrc522.ComIrqReg, 0x7F);
+}
+
+void blinkLed() {
+  analogWrite(LED_PIN, 200);
+  delay(500);
+  analogWrite(LED_PIN, 0);
+  delay(500);
 }
  
